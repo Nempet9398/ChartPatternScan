@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pandas
+numpy
+scipy
+yfinance
+ccxt
+python-dotenv
+matplotlib
