@@ -1,14 +1,17 @@
 "use client";
 
 import { use, useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { fetchChart, analyzePattern } from "@/lib/api";
-import type { OHLCVBar, PatternItem, Period } from "@/lib/api";
+import type { OHLCVBar, PatternItem, Timeframe } from "@/lib/api";
 import { useChartStore } from "@/store/chartStore";
+import type { SelectionRange } from "@/store/chartStore";
 import SearchBar from "@/components/SearchBar";
 import PeriodSelector from "@/components/PeriodSelector";
 import CandlestickChart from "@/components/CandlestickChart";
+import type { RangeSelectEvent } from "@/components/CandlestickChart";
 import PatternCard from "@/components/PatternCard";
+
+const MIN_CANDLES = 60;
 
 interface Props {
   params: Promise<{ symbol: string }>;
@@ -18,28 +21,31 @@ export default function ResultClient({ params }: Props) {
   const { symbol: routeSymbol } = use(params);
   const decodedSymbol = decodeURIComponent(routeSymbol);
 
-  const router = useRouter();
-  const { period, setSymbol } = useChartStore();
+  const { timeframe, selectionRange, setSymbol, setSelectionRange } = useChartStore();
 
-  const [ohlcv,    setOhlcv]    = useState<OHLCVBar[]>([]);
-  const [patterns, setPatterns] = useState<PatternItem[]>([]);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const [analyzedAt, setAnalyzedAt] = useState<string>("");
+  const [ohlcv,          setOhlcv]         = useState<OHLCVBar[]>([]);
+  const [patterns,       setPatterns]       = useState<PatternItem[]>([]);
+  const [loading,        setLoading]        = useState(false);
+  const [analyzeLoading, setAnalyzeLoading] = useState(false);
+  const [error,          setError]          = useState<string | null>(null);
+  const [rangeWarning,   setRangeWarning]   = useState<string | null>(null);
+  const [analyzedAt,     setAnalyzedAt]     = useState("");
 
-  // 심볼이 URL에서 왔으면 store에도 동기화
   useEffect(() => {
     setSymbol(decodedSymbol);
   }, [decodedSymbol, setSymbol]);
 
-  const load = useCallback(
-    async (sym: string, p: Period) => {
+  // ── 차트 + 초기 분석 로드 ────────────────────────────────────────────────
+  const loadChart = useCallback(
+    async (sym: string, tf: Timeframe) => {
       setLoading(true);
       setError(null);
+      setSelectionRange(null);
+      setRangeWarning(null);
       try {
         const [chartRes, analyzeRes] = await Promise.all([
-          fetchChart(sym, p),
-          analyzePattern(sym, p),
+          fetchChart(sym, tf),
+          analyzePattern(sym, tf),  // 구간 미선택 → 전체 데이터 분석
         ]);
         setOhlcv(chartRes.ohlcv);
         setPatterns(analyzeRes.top_patterns);
@@ -50,17 +56,64 @@ export default function ResultClient({ params }: Props) {
         setLoading(false);
       }
     },
-    []
+    [setSelectionRange],
   );
 
-  // 초기 로드
   useEffect(() => {
-    load(decodedSymbol, period);
-  }, [decodedSymbol, period, load]);
+    loadChart(decodedSymbol, timeframe);
+  }, [decodedSymbol, timeframe, loadChart]);
 
-  const handlePeriodChange = (p: Period) => {
-    load(decodedSymbol, p);
+  const handleTimeframeChange = (tf: Timeframe) => {
+    loadChart(decodedSymbol, tf);
   };
+
+  // ── 드래그 구간 선택 ────────────────────────────────────────────────────
+  const handleRangeSelect = useCallback(
+    (e: RangeSelectEvent) => {
+      if (e.candleCount < MIN_CANDLES) {
+        setRangeWarning(
+          `패턴 분석을 위해 최소 ${MIN_CANDLES}개의 캔들이 필요합니다. 현재 선택: ${e.candleCount}개`,
+        );
+        setSelectionRange(null);
+      } else {
+        setRangeWarning(null);
+        setSelectionRange({
+          startTime:   e.startTime,
+          endTime:     e.endTime,
+          candleCount: e.candleCount,
+        });
+      }
+    },
+    [setSelectionRange],
+  );
+
+  // ── 구간 분석 실행 ──────────────────────────────────────────────────────
+  const handleAnalyze = useCallback(async () => {
+    if (!selectionRange) return;
+    setAnalyzeLoading(true);
+    setError(null);
+    console.log("[분석하기] 전송 값:", {
+      symbol: decodedSymbol,
+      timeframe,
+      startTime: selectionRange.startTime,
+      endTime: selectionRange.endTime,
+      candleCount: selectionRange.candleCount,
+    });
+    try {
+      const res = await analyzePattern(
+        decodedSymbol,
+        timeframe,
+        selectionRange.startTime,
+        selectionRange.endTime,
+      );
+      setPatterns(res.top_patterns);
+      setAnalyzedAt(res.analyzed_at);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "분석 오류가 발생했습니다.");
+    } finally {
+      setAnalyzeLoading(false);
+    }
+  }, [decodedSymbol, timeframe, selectionRange]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -76,9 +129,8 @@ export default function ResultClient({ params }: Props) {
         </div>
       </header>
 
-      {/* 메인 */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
-        {/* 심볼 + 기간 선택 */}
+        {/* 심볼 + 타임프레임 선택 */}
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div>
             <h2 className="text-2xl font-black text-slate-900">{decodedSymbol}</h2>
@@ -88,14 +140,43 @@ export default function ResultClient({ params }: Props) {
               </p>
             )}
           </div>
-          <PeriodSelector onChange={handlePeriodChange} />
+          <PeriodSelector onChange={handleTimeframeChange} />
         </div>
 
-        {/* 에러 */}
+        {/* 에러 메시지 */}
         {error && (
-          <div className="rounded-xl bg-red-50 border border-red-200 text-red-700
-                          p-4 mb-4 text-sm">
+          <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 p-4 mb-4 text-sm">
             <strong>오류:</strong> {error}
+          </div>
+        )}
+
+        {/* 60캔들 미만 경고 */}
+        {rangeWarning && (
+          <div className="rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 mb-4 text-sm">
+            ⚠️ {rangeWarning}
+          </div>
+        )}
+
+        {/* 선택 구간 정보 + 분석하기 버튼 */}
+        {selectionRange && (
+          <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200">
+            <span className="text-sm text-blue-800 flex-1">
+              선택 구간: <strong>{selectionRange.candleCount}캔들</strong>
+              {" "}({selectionRange.startTime.slice(0, 10)} ~ {selectionRange.endTime.slice(0, 10)})
+            </span>
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzeLoading}
+              className="px-4 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
+            >
+              {analyzeLoading ? "분석 중..." : "분석하기"}
+            </button>
+            <button
+              onClick={() => { setSelectionRange(null); setRangeWarning(null); }}
+              className="px-3 py-1.5 text-slate-500 text-sm rounded-lg hover:bg-slate-100 transition"
+            >
+              초기화
+            </button>
           </div>
         )}
 
@@ -108,7 +189,7 @@ export default function ResultClient({ params }: Props) {
               <path className="opacity-75" fill="currentColor"
                     d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
-            분석 중...
+            데이터 로딩 중...
           </div>
         )}
 
@@ -117,7 +198,13 @@ export default function ResultClient({ params }: Props) {
             {/* 차트 (2/3) */}
             <div className="lg:col-span-2">
               {ohlcv.length > 0 ? (
-                <CandlestickChart ohlcv={ohlcv} patterns={patterns} height={440} />
+                <CandlestickChart
+                  ohlcv={ohlcv}
+                  patterns={patterns}
+                  height={440}
+                  onRangeSelect={handleRangeSelect}
+                  selectionRange={selectionRange}
+                />
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white
                                 flex items-center justify-center h-[440px] text-slate-400 text-sm">
@@ -128,7 +215,16 @@ export default function ResultClient({ params }: Props) {
 
             {/* 패턴 카드 (1/3) */}
             <div className="flex flex-col gap-4">
-              {patterns.length > 0 ? (
+              {analyzeLoading ? (
+                <div className="flex items-center justify-center h-40 text-slate-400 text-sm gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10"
+                            stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  패턴 분석 중...
+                </div>
+              ) : patterns.length > 0 ? (
                 patterns.map((p) => <PatternCard key={p.rank} pattern={p} />)
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white p-6

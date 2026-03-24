@@ -9,10 +9,10 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ── 타입 정의 ──────────────────────────────────────────────────────────────────
 
-export type Period = "1w" | "1mo" | "3mo" | "6mo" | "1y";
+export type Timeframe = "15m" | "30m" | "1h" | "6h" | "12h" | "1D" | "1W";
 
 export interface OHLCVBar {
-  time: string;
+  time: string | number;  // 일봉/주봉: "YYYY-MM-DD", 분봉/시봉: Unix 초
   open: number;
   high: number;
   low: number;
@@ -22,7 +22,7 @@ export interface OHLCVBar {
 
 export interface ChartResponse {
   symbol: string;
-  period: Period;
+  timeframe: Timeframe;
   ohlcv: OHLCVBar[];
 }
 
@@ -41,7 +41,7 @@ export interface PatternItem {
 
 export interface AnalyzeResponse {
   symbol: string;
-  period: Period;
+  timeframe: Timeframe;
   analyzed_at: string;
   algorithm_ref: string;
   top_patterns: PatternItem[];
@@ -73,14 +73,29 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function fetchChart(symbol: string, period: Period): Promise<ChartResponse> {
-  return apiFetch<ChartResponse>(`/api/chart/${encodeURIComponent(symbol)}?period=${period}`);
+export async function fetchChart(
+  symbol: string,
+  timeframe: Timeframe,
+): Promise<ChartResponse> {
+  return apiFetch<ChartResponse>(
+    `/api/chart/${encodeURIComponent(symbol)}?timeframe=${timeframe}`,
+  );
 }
 
-export async function analyzePattern(symbol: string, period: Period): Promise<AnalyzeResponse> {
+export async function analyzePattern(
+  symbol: string,
+  timeframe: Timeframe,
+  startTime?: string | null,
+  endTime?: string | null,
+): Promise<AnalyzeResponse> {
   return apiFetch<AnalyzeResponse>("/api/analyze", {
     method: "POST",
-    body: JSON.stringify({ symbol, period }),
+    body: JSON.stringify({
+      symbol,
+      timeframe,
+      start_time: startTime ?? null,
+      end_time: endTime ?? null,
+    }),
   });
 }
 
