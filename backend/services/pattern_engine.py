@@ -16,6 +16,11 @@ from patterns.double_bottom import DoubleBottom
 from patterns.head_and_shoulders import HeadAndShoulders
 from patterns.inverse_head_and_shoulders import InverseHeadAndShoulders
 from patterns.triangle import SymmetricalTriangle, AscendingTriangle, DescendingTriangle
+from patterns.triple_top import TripleTop
+from patterns.triple_bottom import TripleBottom
+from patterns.rectangle import Rectangle
+from patterns.wedge import RisingWedge, FallingWedge
+from patterns.flag_pennant import BullFlag, BearFlag, BullPennant, BearPennant
 
 ALL_PATTERNS = [
     HeadAndShoulders(),
@@ -27,6 +32,15 @@ ALL_PATTERNS = [
     SymmetricalTriangle(),
     AscendingTriangle(),
     DescendingTriangle(),
+    TripleTop(),
+    TripleBottom(),
+    Rectangle(),
+    RisingWedge(),
+    FallingWedge(),
+    BullFlag(),
+    BearFlag(),
+    BullPennant(),
+    BearPennant(),
 ]
 
 
