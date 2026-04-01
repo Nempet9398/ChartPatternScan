@@ -2,6 +2,8 @@ import type { PatternItem } from "@/lib/api";
 
 interface Props {
   pattern: PatternItem;
+  isSelected?: boolean;
+  onClick?: () => void;
 }
 
 // CLAUDE.md 기준: 70+ 초록, 40+ 노랑, 미만 회색
@@ -19,14 +21,20 @@ const SIGNAL_BADGE: Record<string, { label: string; className: string }> = {
 
 const RANK_COLORS = ["text-yellow-500", "text-gray-400", "text-amber-700"];
 
-export default function PatternCard({ pattern }: Props) {
+export default function PatternCard({ pattern, isSelected = false, onClick }: Props) {
   const badge = SIGNAL_BADGE[pattern.signal] ?? SIGNAL_BADGE["neutral"];
   const barColor = getBarColor(pattern.similarity);
   const rankColor = RANK_COLORS[(pattern.rank - 1)] ?? "text-gray-400";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm
-                    hover:shadow-md transition-shadow">
+    <div
+      className={`rounded-2xl border bg-white p-5 shadow-sm transition-all cursor-pointer
+        ${isSelected
+          ? "border-blue-400 ring-2 ring-blue-200 shadow-md"
+          : "border-gray-200 hover:shadow-md hover:border-blue-200"
+        }`}
+      onClick={onClick}
+    >
       {/* 헤더 */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">

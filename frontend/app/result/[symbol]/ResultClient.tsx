@@ -8,7 +8,7 @@ import type { SelectionRange } from "@/store/chartStore";
 import SearchBar from "@/components/SearchBar";
 import PeriodSelector from "@/components/PeriodSelector";
 import CandlestickChart from "@/components/CandlestickChart";
-import type { RangeSelectEvent } from "@/components/CandlestickChart";
+import type { RangeSelectEvent, PatternGeometry } from "@/components/CandlestickChart";
 import PatternCard from "@/components/PatternCard";
 
 const MIN_CANDLES = 60;
@@ -23,13 +23,14 @@ export default function ResultClient({ params }: Props) {
 
   const { timeframe, selectionRange, setSymbol, setSelectionRange } = useChartStore();
 
-  const [ohlcv,          setOhlcv]         = useState<OHLCVBar[]>([]);
-  const [patterns,       setPatterns]       = useState<PatternItem[]>([]);
-  const [loading,        setLoading]        = useState(false);
-  const [analyzeLoading, setAnalyzeLoading] = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
-  const [rangeWarning,   setRangeWarning]   = useState<string | null>(null);
-  const [analyzedAt,     setAnalyzedAt]     = useState("");
+  const [ohlcv,             setOhlcv]            = useState<OHLCVBar[]>([]);
+  const [patterns,          setPatterns]          = useState<PatternItem[]>([]);
+  const [selectedPatternIdx, setSelectedPatternIdx] = useState<number>(0);
+  const [loading,           setLoading]           = useState(false);
+  const [analyzeLoading,    setAnalyzeLoading]    = useState(false);
+  const [error,             setError]             = useState<string | null>(null);
+  const [rangeWarning,      setRangeWarning]      = useState<string | null>(null);
+  const [analyzedAt,        setAnalyzedAt]        = useState("");
 
   useEffect(() => {
     setSymbol(decodedSymbol);
@@ -50,6 +51,7 @@ export default function ResultClient({ params }: Props) {
         setOhlcv(chartRes.ohlcv);
         setPatterns(analyzeRes.top_patterns);
         setAnalyzedAt(analyzeRes.analyzed_at);
+        setSelectedPatternIdx(0); // 새 분석 시 Top1 선택
       } catch (err) {
         setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
       } finally {
@@ -108,6 +110,7 @@ export default function ResultClient({ params }: Props) {
       );
       setPatterns(res.top_patterns);
       setAnalyzedAt(res.analyzed_at);
+      setSelectedPatternIdx(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "분석 오류가 발생했습니다.");
     } finally {
@@ -201,6 +204,9 @@ export default function ResultClient({ params }: Props) {
                 <CandlestickChart
                   ohlcv={ohlcv}
                   patterns={patterns}
+                  activePatternGeometry={
+                    (patterns[selectedPatternIdx]?.pattern_geometry as PatternGeometry | undefined) ?? null
+                  }
                   height={440}
                   onRangeSelect={handleRangeSelect}
                   selectionRange={selectionRange}
@@ -225,7 +231,14 @@ export default function ResultClient({ params }: Props) {
                   패턴 분석 중...
                 </div>
               ) : patterns.length > 0 ? (
-                patterns.map((p) => <PatternCard key={p.rank} pattern={p} />)
+                patterns.map((p, idx) => (
+                  <PatternCard
+                    key={p.rank}
+                    pattern={p}
+                    isSelected={selectedPatternIdx === idx}
+                    onClick={() => setSelectedPatternIdx(idx)}
+                  />
+                ))
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white p-6
                                 text-slate-400 text-sm text-center">
