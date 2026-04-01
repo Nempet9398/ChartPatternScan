@@ -20,6 +20,7 @@ import pandas as pd
 from .base import BasePattern, PatternResult
 from .config import DOUBLE_TOLERANCE, DOUBLE_MIN_DAYS
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_point, make_line, make_level, pos_to_date, pos_to_price
 
 
 class DoubleTop(BasePattern):
@@ -73,8 +74,27 @@ class DoubleTop(BasePattern):
 
         similarity = round(c1_score + c2_score + c3_score, 1)
 
+        close = prep["close"]
         highlight_start = pd.Timestamp(dates[p1_pos]).strftime("%Y-%m-%d")
         highlight_end   = pd.Timestamp(dates[p2_pos]).strftime("%Y-%m-%d")
+
+        peak1_price  = pos_to_price(p1_pos, dates, close)
+        peak2_price  = pos_to_price(p2_pos, dates, close)
+        trough_price = float(close.loc[dates[p1_pos]:dates[p2_pos]].min())
+        geometry = build_geometry(
+            points=[
+                make_point("peak1",  pos_to_date(p1_pos, dates), peak1_price),
+                make_point("peak2",  pos_to_date(p2_pos, dates), peak2_price),
+            ],
+            lines=[
+                make_line(
+                    pos_to_date(p1_pos, dates), peak1_price,
+                    pos_to_date(p2_pos, dates), peak2_price,
+                    "resistance", "#ef4444", "dashed",
+                ),
+            ],
+            levels=[make_level("neckline", trough_price, "#888888")],
+        )
 
         return PatternResult(
             name=self.name, name_ko=self.name_ko, similarity=similarity,
@@ -82,6 +102,7 @@ class DoubleTop(BasePattern):
             historical_success_rate=self.historical_success_rate,
             source=self.source,
             highlight_start=highlight_start, highlight_end=highlight_end,
+            pattern_geometry=geometry if similarity > 0 else None,
         )
 
     def _zero_result(self) -> PatternResult:

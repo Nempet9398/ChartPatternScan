@@ -20,6 +20,7 @@ import pandas as pd
 from .base import BasePattern, PatternResult
 from .config import SHOULDER_TOLERANCE, NECKLINE_TOLERANCE
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_point, make_line, pos_to_date, pos_to_price
 
 
 class InverseHeadAndShoulders(BasePattern):
@@ -52,9 +53,29 @@ class InverseHeadAndShoulders(BasePattern):
 
         similarity = round(c1_score + c2_score + c3_score, 1)
 
-        t1_pos, _, _, _, t5_pos = positions
+        t1_pos, p2_pos, t3_pos, p4_pos, t5_pos = positions
+        close = prep["close"]
         highlight_start = pd.Timestamp(dates[t1_pos]).strftime("%Y-%m-%d")
         highlight_end   = pd.Timestamp(dates[t5_pos]).strftime("%Y-%m-%d")
+
+        neckline_y1 = pos_to_price(p2_pos, dates, close)
+        neckline_y2 = pos_to_price(p4_pos, dates, close)
+        geometry = build_geometry(
+            points=[
+                make_point("left_shoulder",  pos_to_date(t1_pos, dates), pos_to_price(t1_pos, dates, close)),
+                make_point("left_peak",      pos_to_date(p2_pos, dates), neckline_y1),
+                make_point("head",           pos_to_date(t3_pos, dates), pos_to_price(t3_pos, dates, close)),
+                make_point("right_peak",     pos_to_date(p4_pos, dates), neckline_y2),
+                make_point("right_shoulder", pos_to_date(t5_pos, dates), pos_to_price(t5_pos, dates, close)),
+            ],
+            lines=[
+                make_line(
+                    pos_to_date(p2_pos, dates), neckline_y1,
+                    pos_to_date(p4_pos, dates), neckline_y2,
+                    "neckline", "#888888", "dashed",
+                ),
+            ],
+        )
 
         return PatternResult(
             name=self.name, name_ko=self.name_ko, similarity=similarity,
@@ -62,6 +83,7 @@ class InverseHeadAndShoulders(BasePattern):
             historical_success_rate=self.historical_success_rate,
             source=self.source,
             highlight_start=highlight_start, highlight_end=highlight_end,
+            pattern_geometry=geometry if similarity > 0 else None,
         )
 
     def _find_best(self, peaks, troughs, norm):

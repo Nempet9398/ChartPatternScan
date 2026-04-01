@@ -32,6 +32,7 @@ from .config import (
     BREAKOUT_EPSILON,
 )
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_line, make_level, pos_to_date, trendline_endpoints
 
 
 class Rectangle(BasePattern):
@@ -105,6 +106,22 @@ class Rectangle(BasePattern):
 
         similarity = round(c1 + c2 + c3 + c4, 1)
 
+        close    = prep["close"]
+        smoothed = prep["smoothed"]
+        x_start  = int(min(peaks[0], troughs[0]))
+        x_end    = len(norm) - 1
+        x1_d, y1_u, x2_d, y2_u = trendline_endpoints(
+            x_start, x_end, upper_slope, upper_intercept, dates, close, smoothed)
+        _, y1_l, _, y2_l = trendline_endpoints(
+            x_start, x_end, lower_slope, lower_intercept, dates, close, smoothed)
+        geometry = build_geometry(
+            lines=[
+                make_line(x1_d, y1_u, x2_d, y2_u, "resistance", "#ef4444", "solid"),
+                make_line(x1_d, y1_l, x2_d, y2_l, "support",    "#22c55e", "solid"),
+            ],
+            levels=[make_level(breakout_state, (y2_u + y2_l) / 2, "#888888")],
+        )
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -114,6 +131,7 @@ class Rectangle(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[peaks[0]]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[-1]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry if similarity > 0 else None,
         )
 
     def _get_signal(self, state: str) -> str:

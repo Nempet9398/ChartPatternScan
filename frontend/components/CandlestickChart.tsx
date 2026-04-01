@@ -5,6 +5,8 @@ import {
   createChart,
   ColorType,
   CandlestickSeries,
+  LineSeries,
+  LineStyle,
   createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
@@ -13,6 +15,12 @@ import {
 } from "lightweight-charts";
 import type { OHLCVBar, PatternItem } from "@/lib/api";
 import type { SelectionRange } from "@/store/chartStore";
+
+export interface PatternGeometry {
+  points: { label: string; date: string; value: number }[];
+  lines:  { type: string; x1: string; y1: number; x2: string; y2: number; color: string; style: string }[];
+  levels: { type: string; value: number; color: string }[];
+}
 
 // lightweight-charts Time → ISO 문자열
 function timeToIso(t: Time): string {
@@ -54,6 +62,7 @@ export interface RangeSelectEvent {
 interface Props {
   ohlcv: OHLCVBar[];
   patterns?: PatternItem[];
+  activePatternGeometry?: PatternGeometry | null;
   height?: number;
   onRangeSelect?: (e: RangeSelectEvent) => void;
   selectionRange?: SelectionRange | null;
@@ -62,6 +71,7 @@ interface Props {
 export default function CandlestickChart({
   ohlcv,
   patterns = [],
+  activePatternGeometry,
   height = 420,
   onRangeSelect,
   selectionRange,
@@ -69,6 +79,8 @@ export default function CandlestickChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  // geometry 라인 시리즈 목록 (geometry 변경 시 제거)
+  const geoSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
 
   const [isSelectMode, setIsSelectMode] = useState(false);
   const isDragging = useRef(false);
@@ -168,6 +180,62 @@ export default function CandlestickChart({
 
     chartRef.current.timeScale().fitContent();
   }, [ohlcv, patterns]);
+
+  // ── 패턴 geometry 렌더링 ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    // 기존 geometry 라인 제거
+    geoSeriesRef.current.forEach((s) => {
+      try { chartRef.current!.removeSeries(s); } catch { /* 이미 제거됨 */ }
+    });
+    geoSeriesRef.current = [];
+
+    if (!activePatternGeometry || ohlcv.length === 0) return;
+
+    const chart = chartRef.current;
+    const newSeries: ISeriesApi<"Line">[] = [];
+
+    // lines: 시작~끝 두 점으로 직선 렌더
+    activePatternGeometry.lines.forEach((line) => {
+      const s = chart.addSeries(LineSeries, {
+        color:      line.color,
+        lineWidth:  2,
+        lineStyle:  line.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      s.setData([
+        { time: line.x1 as Time, value: line.y1 },
+        { time: line.x2 as Time, value: line.y2 },
+      ]);
+      newSeries.push(s);
+    });
+
+    // levels: 전체 구간 수평선
+    if (activePatternGeometry.levels.length > 0 && ohlcv.length >= 2) {
+      const firstTime = ohlcv[0].time as Time;
+      const lastTime  = ohlcv[ohlcv.length - 1].time as Time;
+      activePatternGeometry.levels.forEach((level) => {
+        const s = chart.addSeries(LineSeries, {
+          color:     level.color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          priceLineVisible:       false,
+          lastValueVisible:       false,
+          crosshairMarkerVisible: false,
+        });
+        s.setData([
+          { time: firstTime, value: level.value },
+          { time: lastTime,  value: level.value },
+        ]);
+        newSeries.push(s);
+      });
+    }
+
+    geoSeriesRef.current = newSeries;
+  }, [activePatternGeometry, ohlcv]);
 
   // 모드 전환 시 드래그 상태 초기화
   useEffect(() => {

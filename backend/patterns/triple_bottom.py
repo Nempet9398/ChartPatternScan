@@ -24,6 +24,7 @@ from .config import (
     BREAKOUT_EPSILON,
 )
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_point, make_level, pos_to_date, pos_to_price
 
 
 class TripleBottom(BasePattern):
@@ -101,6 +102,32 @@ class TripleBottom(BasePattern):
         if best_t1 is None:
             return self._zero_result()
 
+        close = prep["close"]
+        best_i = next(i for i in range(len(troughs) - 2) if troughs[i] == best_t1)
+        t1, t2, t3 = troughs[best_i], troughs[best_i + 1], troughs[best_i + 2]
+        p12 = [p for p in peaks if t1 < p < t2]
+        p23 = [p for p in peaks if t2 < p < t3]
+        neckline_price = None
+        geo_points = [
+            make_point("trough1", pos_to_date(t1, dates), pos_to_price(t1, dates, close)),
+            make_point("trough2", pos_to_date(t2, dates), pos_to_price(t2, dates, close)),
+            make_point("trough3", pos_to_date(t3, dates), pos_to_price(t3, dates, close)),
+        ]
+        if p12:
+            p12_pos = max(p12, key=lambda p: norm.values[p])
+            geo_points.append(make_point("peak1", pos_to_date(p12_pos, dates), pos_to_price(p12_pos, dates, close)))
+        if p23:
+            p23_pos = max(p23, key=lambda p: norm.values[p])
+            geo_points.append(make_point("peak2", pos_to_date(p23_pos, dates), pos_to_price(p23_pos, dates, close)))
+        if p12 and p23:
+            neckline_price = (pos_to_price(max(p12, key=lambda p: norm.values[p]), dates, close) +
+                              pos_to_price(max(p23, key=lambda p: norm.values[p]), dates, close)) / 2.0
+
+        geometry = build_geometry(
+            points=geo_points,
+            levels=[make_level("neckline", neckline_price, "#888888")] if neckline_price else [],
+        )
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=round(best_score, 1),
@@ -109,6 +136,7 @@ class TripleBottom(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[best_t1]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[best_t3]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:

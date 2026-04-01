@@ -34,6 +34,9 @@ from scipy.stats import linregress
 from .base import BasePattern, PatternResult
 from .config import TRIANGLE_SLOPE_FLAT
 from .preprocessor import preprocess
+from .geometry import (
+    build_geometry, make_point, pos_to_date, pos_to_price, trendline_endpoints,
+)
 
 
 def _linreg(x: np.ndarray, y: np.ndarray):
@@ -101,17 +104,55 @@ class _TriangleBase(BasePattern):
         lower_x = np.array([t2_pos, t4_pos], dtype=float)
         lower_y = norm.values[[t2_pos, t4_pos]]
 
-        upper_slope, _, upper_r2 = _linreg(upper_x, upper_y)
-        lower_slope, _, lower_r2 = _linreg(lower_x, lower_y)
+        upper_slope, upper_intercept, upper_r2 = _linreg(upper_x, upper_y)
+        lower_slope, lower_intercept, lower_r2 = _linreg(lower_x, lower_y)
 
         return dict(
-            upper_slope=upper_slope, upper_r2=upper_r2,
-            lower_slope=lower_slope, lower_r2=lower_r2,
-            p1_pos=p1_pos, p5_pos=p5_pos,
+            upper_slope=upper_slope, upper_intercept=upper_intercept, upper_r2=upper_r2,
+            lower_slope=lower_slope, lower_intercept=lower_intercept, lower_r2=lower_r2,
+            p1_pos=p1_pos, p3_pos=peaks[-2], p5_pos=p5_pos,
+            t2_pos=t2_pos, t4_pos=t4_pos,
             dates=dates,
+            norm=norm,
+            close=prep["close"],
+            smoothed=prep["smoothed"],
         )
 
-    def _make_result(self, similarity: float, p1_pos, p5_pos, dates) -> PatternResult:
+    def _make_result(self, similarity: float, seq: dict) -> PatternResult:
+        dates = seq["dates"]
+        p1_pos, p5_pos = seq["p1_pos"], seq["p5_pos"]
+        close, smoothed = seq["close"], seq["smoothed"]
+
+        # ── geometry: 상단/하단 추세선 + 키 포인트 ───────────────────────────
+        geometry = None
+        if similarity > 0:
+            x1_d, y1_u, x2_d, y2_u = trendline_endpoints(
+                p1_pos, p5_pos,
+                seq["upper_slope"], seq["upper_intercept"],
+                dates, close, smoothed,
+            )
+            t2_pos, t4_pos = seq["t2_pos"], seq["t4_pos"]
+            x1_l, y1_l, x2_l, y2_l = trendline_endpoints(
+                t2_pos, t4_pos,
+                seq["lower_slope"], seq["lower_intercept"],
+                dates, close, smoothed,
+            )
+            geometry = build_geometry(
+                points=[
+                    make_point("p1", pos_to_date(p1_pos, dates),        pos_to_price(p1_pos, dates, close)),
+                    make_point("t2", pos_to_date(t2_pos, dates),        pos_to_price(t2_pos, dates, close)),
+                    make_point("p3", pos_to_date(seq["p3_pos"], dates), pos_to_price(seq["p3_pos"], dates, close)),
+                    make_point("t4", pos_to_date(t4_pos, dates),        pos_to_price(t4_pos, dates, close)),
+                    make_point("p5", pos_to_date(p5_pos, dates),        pos_to_price(p5_pos, dates, close)),
+                ],
+                lines=[
+                    {"type": "upper_trendline", "x1": x1_d, "y1": round(y1_u, 4),
+                     "x2": x2_d, "y2": round(y2_u, 4), "color": "#ef4444", "style": "solid"},
+                    {"type": "lower_trendline", "x1": x1_l, "y1": round(y1_l, 4),
+                     "x2": x2_l, "y2": round(y2_l, 4), "color": "#22c55e", "style": "solid"},
+                ],
+            )
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko, similarity=similarity,
             signal=self.signal, description=self.description,
@@ -119,6 +160,7 @@ class _TriangleBase(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[p1_pos]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[p5_pos]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:
@@ -147,7 +189,7 @@ class SymmetricalTriangle(_TriangleBase):
         # 대칭: 상단 기울기 < 0, 하단 기울기 > 0
         condition = (us < -TRIANGLE_SLOPE_FLAT) and (ls > TRIANGLE_SLOPE_FLAT)
         score = _compute_triangle_score(us, ls, seq["upper_r2"], seq["lower_r2"], condition)
-        return self._make_result(score, seq["p1_pos"], seq["p5_pos"], seq["dates"])
+        return self._make_result(score, seq)
 
 
 class AscendingTriangle(_TriangleBase):
@@ -167,7 +209,7 @@ class AscendingTriangle(_TriangleBase):
         # 상승: 상단 수평, 하단 상향
         condition = (abs(us) < TRIANGLE_SLOPE_FLAT) and (ls > TRIANGLE_SLOPE_FLAT)
         score = _compute_triangle_score(us, ls, seq["upper_r2"], seq["lower_r2"], condition)
-        return self._make_result(score, seq["p1_pos"], seq["p5_pos"], seq["dates"])
+        return self._make_result(score, seq)
 
 
 class DescendingTriangle(_TriangleBase):
@@ -187,4 +229,4 @@ class DescendingTriangle(_TriangleBase):
         # 하락: 상단 하향, 하단 수평
         condition = (us < -TRIANGLE_SLOPE_FLAT) and (abs(ls) < TRIANGLE_SLOPE_FLAT)
         score = _compute_triangle_score(us, ls, seq["upper_r2"], seq["lower_r2"], condition)
-        return self._make_result(score, seq["p1_pos"], seq["p5_pos"], seq["dates"])
+        return self._make_result(score, seq)
