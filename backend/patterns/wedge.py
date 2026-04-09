@@ -30,19 +30,21 @@ from scipy import stats
 from .base import BasePattern, PatternResult
 from .config import WEDGE_MIN_BARS, WEDGE_CONVERGENCE_MIN
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_line, norm_to_price, pos_to_date
 
 
 def _wedge_scores(
     peaks: np.ndarray,
     troughs: np.ndarray,
     norm: pd.Series,
-) -> tuple[float, float, float, float, float]:
+) -> tuple[float, float, float, float, float, float, float]:
     """
     상단(peak)/하단(trough) 추세선 회귀.
-    Returns: upper_slope, lower_slope, upper_r2, lower_r2, convergence_ratio
+    Returns: upper_slope, lower_slope, upper_r2, lower_r2, convergence_ratio,
+             upper_intercept, lower_intercept
     """
     if len(peaks) < 2 or len(troughs) < 2:
-        return 0.0, 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
     peak_x = np.array(peaks, dtype=float)
     peak_y = norm.values[peaks]
@@ -52,7 +54,6 @@ def _wedge_scores(
     trough_y = norm.values[troughs]
     ls, li, lr, _, _ = stats.linregress(trough_x, trough_y)
 
-    # 수렴 비율: 시작 폭 대비 끝 폭 감소
     start_x = max(peaks[0], troughs[0])
     end_x   = min(peaks[-1], troughs[-1])
     if end_x <= start_x:
@@ -65,7 +66,7 @@ def _wedge_scores(
         else:
             conv = max(0.0, (width_start - width_end) / abs(width_start))
 
-    return us, ls, ur ** 2, lr ** 2, conv
+    return us, ls, ur ** 2, lr ** 2, conv, ui, li
 
 
 class RisingWedge(BasePattern):
@@ -86,7 +87,7 @@ class RisingWedge(BasePattern):
         if len(peaks) < 2 or len(troughs) < 2 or len(norm) < WEDGE_MIN_BARS:
             return self._zero_result()
 
-        us, ls, ur2, lr2, conv = _wedge_scores(peaks, troughs, norm)
+        us, ls, ur2, lr2, conv, ui, li = _wedge_scores(peaks, troughs, norm)
 
         # [C1] 두 선 모두 우상향 & 하단 기울기 > 상단 기울기
         rising_both = (us > 0) and (ls > 0)
@@ -98,10 +99,7 @@ class RisingWedge(BasePattern):
         else:
             c1 = 0.0
 
-        # [C2] 수렴성
         c2 = min(conv / WEDGE_CONVERGENCE_MIN, 1.0) * 30.0
-
-        # [C3] R² 적합도
         avg_r2 = (ur2 + lr2) / 2.0
         c3 = avg_r2 * 30.0
 
@@ -112,6 +110,27 @@ class RisingWedge(BasePattern):
         if start_pos >= len(dates) or end_pos >= len(dates):
             end_pos = len(dates) - 1
 
+        smoothed = prep["smoothed"]
+        close    = prep["close"]
+        geometry = None
+        if similarity > 0:
+            x1_d, y1_u, x2_d, y2_u = (
+                pos_to_date(start_pos, dates),
+                norm_to_price(us * start_pos + ui, close, smoothed),
+                pos_to_date(end_pos, dates),
+                norm_to_price(us * end_pos   + ui, close, smoothed),
+            )
+            x1_l, y1_l, x2_l, y2_l = (
+                pos_to_date(start_pos, dates),
+                norm_to_price(ls * start_pos + li, close, smoothed),
+                pos_to_date(end_pos, dates),
+                norm_to_price(ls * end_pos   + li, close, smoothed),
+            )
+            geometry = build_geometry(lines=[
+                make_line(x1_d, y1_u, x2_d, y2_u, "upper_trendline", "#ef4444", "solid"),
+                make_line(x1_l, y1_l, x2_l, y2_l, "lower_trendline", "#22c55e", "solid"),
+            ])
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -120,6 +139,7 @@ class RisingWedge(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[start_pos]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[end_pos]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:
@@ -149,7 +169,7 @@ class FallingWedge(BasePattern):
         if len(peaks) < 2 or len(troughs) < 2 or len(norm) < WEDGE_MIN_BARS:
             return self._zero_result()
 
-        us, ls, ur2, lr2, conv = _wedge_scores(peaks, troughs, norm)
+        us, ls, ur2, lr2, conv, ui, li = _wedge_scores(peaks, troughs, norm)
 
         # [C1] 두 선 모두 우하향 & 상단 기울기 절댓값 > 하단 기울기 절댓값
         falling_both = (us < 0) and (ls < 0)
@@ -161,10 +181,7 @@ class FallingWedge(BasePattern):
         else:
             c1 = 0.0
 
-        # [C2] 수렴성
         c2 = min(conv / WEDGE_CONVERGENCE_MIN, 1.0) * 30.0
-
-        # [C3] R² 적합도
         avg_r2 = (ur2 + lr2) / 2.0
         c3 = avg_r2 * 30.0
 
@@ -175,6 +192,21 @@ class FallingWedge(BasePattern):
         if start_pos >= len(dates) or end_pos >= len(dates):
             end_pos = len(dates) - 1
 
+        smoothed = prep["smoothed"]
+        close    = prep["close"]
+        geometry = None
+        if similarity > 0:
+            x1_d = pos_to_date(start_pos, dates)
+            x2_d = pos_to_date(end_pos, dates)
+            geometry = build_geometry(lines=[
+                make_line(x1_d, norm_to_price(us * start_pos + ui, close, smoothed),
+                          x2_d, norm_to_price(us * end_pos   + ui, close, smoothed),
+                          "upper_trendline", "#ef4444", "solid"),
+                make_line(x1_d, norm_to_price(ls * start_pos + li, close, smoothed),
+                          x2_d, norm_to_price(ls * end_pos   + li, close, smoothed),
+                          "lower_trendline", "#22c55e", "solid"),
+            ])
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -183,6 +215,7 @@ class FallingWedge(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[start_pos]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[end_pos]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:

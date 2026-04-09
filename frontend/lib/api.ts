@@ -37,6 +37,11 @@ export interface PatternItem {
   source: string;
   highlight_start: string | null;
   highlight_end: string | null;
+  pattern_geometry?: {
+    points: { label: string; date: string; value: number }[];
+    lines: { type: string; x1: string; y1: number; x2: string; y2: number; color: string; style: string }[];
+    levels: { type: string; value: number; color: string }[];
+  } | null;
 }
 
 export interface AnalyzeResponse {

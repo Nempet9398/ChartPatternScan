@@ -14,6 +14,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .base import BasePattern, PatternResult
+from .geometry import build_geometry, make_point, make_line
 
 
 CROSS_LOOKBACK = 5   # 교차 탐지 윈도우 (거래일)
@@ -72,6 +73,28 @@ class GoldenCross(BasePattern):
             highlight_start = pd.Timestamp(cross_date).strftime("%Y-%m-%d")
             highlight_end = pd.Timestamp(df.index[-1]).strftime("%Y-%m-%d")
 
+        # ── geometry: MA20/MA60 라인 전체 구간 ───────────────────────────────
+        geometry = None
+        if similarity > 0:
+            ma20_dates = [pd.Timestamp(d).strftime("%Y-%m-%d") for d in ma20v.index]
+            ma20_vals  = ma20v.values.tolist()
+            ma60_vals  = ma60v.values.tolist()
+            cross_points = []
+            if cross_idx is not None and highlight_start:
+                cross_price = float(ma20v.iloc[-(CROSS_LOOKBACK + 1) + cross_idx])
+                cross_points = [make_point("cross", highlight_start, cross_price)]
+            geometry = build_geometry(
+                lines=[
+                    make_line(ma20_dates[0],  float(ma20_vals[0]),
+                              ma20_dates[-1], float(ma20_vals[-1]),
+                              "ma20", "#3b82f6", "solid"),
+                    make_line(ma20_dates[0],  float(ma60_vals[0]),
+                              ma20_dates[-1], float(ma60_vals[-1]),
+                              "ma60", "#f97316", "solid"),
+                ],
+                points=cross_points,
+            )
+
         return PatternResult(
             name=self.name,
             name_ko=self.name_ko,
@@ -82,6 +105,7 @@ class GoldenCross(BasePattern):
             source=self.source,
             highlight_start=highlight_start,
             highlight_end=highlight_end,
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self, df: pd.DataFrame) -> PatternResult:

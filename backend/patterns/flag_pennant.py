@@ -38,6 +38,7 @@ from .config import (
     TRIANGLE_SLOPE_FLAT,
 )
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_line, make_point, pos_to_date, norm_to_price
 
 
 def _find_pole_and_consolidation(
@@ -123,6 +124,40 @@ def _consolidation_shape(norm_vals: np.ndarray) -> tuple[float, float, float]:
     return us, ls, conv
 
 
+def _flag_geometry(
+    pole_start: int, pole_end: int, consol_end: int,
+    norm: "pd.Series", dates: "pd.Index", close: "pd.Series",
+) -> dict:
+    """Pole 라인 + 조정 구간 상/하단 라인을 반환."""
+    consol_vals = norm.values[pole_end:consol_end + 1]
+    us, ls, _ = _consolidation_shape(consol_vals)
+
+    x_ps = pos_to_date(min(pole_start, len(dates) - 1), dates)
+    x_pe = pos_to_date(min(pole_end,   len(dates) - 1), dates)
+    x_ce = pos_to_date(min(consol_end, len(dates) - 1), dates)
+
+    # Pole 라인
+    pole_start_price = float(close.loc[dates[min(pole_start, len(dates) - 1)]]
+                             if dates[min(pole_start, len(dates) - 1)] in close.index
+                             else close.iloc[min(pole_start, len(dates) - 1)])
+    pole_end_price   = float(close.loc[dates[min(pole_end, len(dates) - 1)]]
+                             if dates[min(pole_end, len(dates) - 1)] in close.index
+                             else close.iloc[min(pole_end, len(dates) - 1)])
+
+    # 조정 구간 상/하단 (정규화 → 실제 가격)
+    c_high = float(close.iloc[pole_end:consol_end + 1].max()) if consol_end < len(close) else pole_end_price
+    c_low  = float(close.iloc[pole_end:consol_end + 1].min()) if consol_end < len(close) else pole_end_price
+
+    return build_geometry(
+        points=[make_point("pole_end", x_pe, pole_end_price)],
+        lines=[
+            make_line(x_ps, pole_start_price, x_pe, pole_end_price, "pole", "#a855f7", "solid"),
+            make_line(x_pe, c_high, x_ce, c_high, "consol_upper", "#888888", "dashed"),
+            make_line(x_pe, c_low,  x_ce, c_low,  "consol_lower", "#888888", "dashed"),
+        ],
+    )
+
+
 class BullFlag(BasePattern):
     name = "Bull Flag"
     name_ko = "불 깃발"
@@ -174,6 +209,9 @@ class BullFlag(BasePattern):
 
         similarity = round(c1 + c2 + c3 + c4, 1)
 
+        close = prep["close"]
+        geometry = _flag_geometry(pole_start, pole_end, consol_end, norm, dates, close) if similarity > 0 else None
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -182,6 +220,7 @@ class BullFlag(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[pole_start]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[min(consol_end, len(dates)-1)]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:
@@ -243,6 +282,9 @@ class BearFlag(BasePattern):
 
         similarity = round(c1 + c2 + c3 + c4, 1)
 
+        close = prep["close"]
+        geometry = _flag_geometry(pole_start, pole_end, consol_end, norm, dates, close) if similarity > 0 else None
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -251,6 +293,7 @@ class BearFlag(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[pole_start]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[min(consol_end, len(dates)-1)]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:
@@ -312,6 +355,9 @@ class BullPennant(BasePattern):
 
         similarity = round(c1 + c2 + c3 + c4, 1)
 
+        close = prep["close"]
+        geometry = _flag_geometry(pole_start, pole_end, consol_end, norm, dates, close) if similarity > 0 else None
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -320,6 +366,7 @@ class BullPennant(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[pole_start]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[min(consol_end, len(dates)-1)]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:
@@ -381,6 +428,9 @@ class BearPennant(BasePattern):
 
         similarity = round(c1 + c2 + c3 + c4, 1)
 
+        close = prep["close"]
+        geometry = _flag_geometry(pole_start, pole_end, consol_end, norm, dates, close) if similarity > 0 else None
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=similarity,
@@ -389,6 +439,7 @@ class BearPennant(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[pole_start]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[min(consol_end, len(dates)-1)]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:

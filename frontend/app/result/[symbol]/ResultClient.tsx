@@ -8,7 +8,7 @@ import type { SelectionRange } from "@/store/chartStore";
 import SearchBar from "@/components/SearchBar";
 import PeriodSelector from "@/components/PeriodSelector";
 import CandlestickChart from "@/components/CandlestickChart";
-import type { RangeSelectEvent } from "@/components/CandlestickChart";
+import type { RangeSelectEvent, PatternGeometry } from "@/components/CandlestickChart";
 import PatternCard from "@/components/PatternCard";
 
 const MIN_CANDLES = 60;
@@ -23,13 +23,14 @@ export default function ResultClient({ params }: Props) {
 
   const { timeframe, selectionRange, setSymbol, setSelectionRange } = useChartStore();
 
-  const [ohlcv,          setOhlcv]         = useState<OHLCVBar[]>([]);
-  const [patterns,       setPatterns]       = useState<PatternItem[]>([]);
-  const [loading,        setLoading]        = useState(false);
-  const [analyzeLoading, setAnalyzeLoading] = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
-  const [rangeWarning,   setRangeWarning]   = useState<string | null>(null);
-  const [analyzedAt,     setAnalyzedAt]     = useState("");
+  const [ohlcv,             setOhlcv]            = useState<OHLCVBar[]>([]);
+  const [patterns,          setPatterns]          = useState<PatternItem[]>([]);
+  const [selectedPatternIdx, setSelectedPatternIdx] = useState<number>(0);
+  const [loading,           setLoading]           = useState(false);
+  const [analyzeLoading,    setAnalyzeLoading]    = useState(false);
+  const [error,             setError]             = useState<string | null>(null);
+  const [rangeWarning,      setRangeWarning]      = useState<string | null>(null);
+  const [analyzedAt,        setAnalyzedAt]        = useState("");
 
   useEffect(() => {
     setSymbol(decodedSymbol);
@@ -50,6 +51,7 @@ export default function ResultClient({ params }: Props) {
         setOhlcv(chartRes.ohlcv);
         setPatterns(analyzeRes.top_patterns);
         setAnalyzedAt(analyzeRes.analyzed_at);
+        setSelectedPatternIdx(0); // 새 분석 시 Top1 선택
       } catch (err) {
         setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
       } finally {
@@ -108,6 +110,7 @@ export default function ResultClient({ params }: Props) {
       );
       setPatterns(res.top_patterns);
       setAnalyzedAt(res.analyzed_at);
+      setSelectedPatternIdx(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "분석 오류가 발생했습니다.");
     } finally {
@@ -201,6 +204,9 @@ export default function ResultClient({ params }: Props) {
                 <CandlestickChart
                   ohlcv={ohlcv}
                   patterns={patterns}
+                  activePatternGeometry={
+                    (patterns[selectedPatternIdx]?.pattern_geometry as PatternGeometry | undefined) ?? null
+                  }
                   height={440}
                   onRangeSelect={handleRangeSelect}
                   selectionRange={selectionRange}
@@ -216,20 +222,44 @@ export default function ResultClient({ params }: Props) {
             {/* 패턴 카드 (1/3) */}
             <div className="flex flex-col gap-4">
               {analyzeLoading ? (
-                <div className="flex items-center justify-center h-40 text-slate-400 text-sm gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <div className="flex flex-col items-center justify-center h-52 gap-3 rounded-2xl
+                                border border-slate-200 bg-white text-slate-400 text-sm">
+                  <svg className="animate-spin h-7 w-7 text-blue-400" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10"
                             stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                   </svg>
-                  패턴 분석 중...
+                  <span>18개 패턴 분석 중...</span>
                 </div>
               ) : patterns.length > 0 ? (
-                patterns.map((p) => <PatternCard key={p.rank} pattern={p} />)
+                <>
+                  {/* 클릭 힌트 */}
+                  <p className="text-xs text-slate-400 text-center select-none">
+                    카드를 클릭하면 차트에 패턴 특성선이 그려집니다
+                  </p>
+                  {patterns.map((p, idx) => (
+                    <PatternCard
+                      key={p.rank}
+                      pattern={p}
+                      isSelected={selectedPatternIdx === idx}
+                      onClick={() => setSelectedPatternIdx(idx)}
+                    />
+                  ))}
+                </>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-white p-6
-                                text-slate-400 text-sm text-center">
-                  패턴 정보 없음
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8
+                                flex flex-col items-center gap-3 text-center">
+                  <svg className="h-10 w-10 text-slate-300" fill="none" viewBox="0 0 24 24"
+                       stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round"
+                          d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-slate-500">패턴 분석 전</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      구간을 선택하거나 분석 버튼을 눌러<br />Top 3 패턴을 탐지하세요
+                    </p>
+                  </div>
                 </div>
               )}
             </div>

@@ -24,6 +24,7 @@ from .config import (
     BREAKOUT_EPSILON,
 )
 from .preprocessor import preprocess
+from .geometry import build_geometry, make_point, make_line, make_level, pos_to_date, pos_to_price
 
 
 class TripleTop(BasePattern):
@@ -104,6 +105,35 @@ class TripleTop(BasePattern):
         if best_p1 is None:
             return self._zero_result()
 
+        close = prep["close"]
+        best_i = next(
+            i for i in range(len(peaks) - 2)
+            if peaks[i] == best_p1
+        )
+        p1, p2, p3 = peaks[best_i], peaks[best_i + 1], peaks[best_i + 2]
+        t12 = [t for t in troughs if p1 < t < p2]
+        t23 = [t for t in troughs if p2 < t < p3]
+        neckline_price = None
+        geo_points = [
+            make_point("peak1", pos_to_date(p1, dates), pos_to_price(p1, dates, close)),
+            make_point("peak2", pos_to_date(p2, dates), pos_to_price(p2, dates, close)),
+            make_point("peak3", pos_to_date(p3, dates), pos_to_price(p3, dates, close)),
+        ]
+        if t12:
+            t12_pos = min(t12, key=lambda t: norm.values[t])
+            geo_points.append(make_point("trough1", pos_to_date(t12_pos, dates), pos_to_price(t12_pos, dates, close)))
+        if t23:
+            t23_pos = min(t23, key=lambda t: norm.values[t])
+            geo_points.append(make_point("trough2", pos_to_date(t23_pos, dates), pos_to_price(t23_pos, dates, close)))
+        if t12 and t23:
+            neckline_price = (pos_to_price(min(t12, key=lambda t: norm.values[t]), dates, close) +
+                              pos_to_price(min(t23, key=lambda t: norm.values[t]), dates, close)) / 2.0
+
+        geometry = build_geometry(
+            points=geo_points,
+            levels=[make_level("neckline", neckline_price, "#888888")] if neckline_price else [],
+        )
+
         return PatternResult(
             name=self.name, name_ko=self.name_ko,
             similarity=round(best_score, 1),
@@ -112,6 +142,7 @@ class TripleTop(BasePattern):
             source=self.source,
             highlight_start=pd.Timestamp(dates[best_p1]).strftime("%Y-%m-%d"),
             highlight_end=pd.Timestamp(dates[best_p3]).strftime("%Y-%m-%d"),
+            pattern_geometry=geometry,
         )
 
     def _zero_result(self) -> PatternResult:

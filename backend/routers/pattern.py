@@ -47,6 +47,7 @@ class PatternItem(BaseModel):
     source:                  str
     highlight_start:         str | None
     highlight_end:           str | None
+    pattern_geometry:        dict | None = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -138,6 +139,7 @@ def post_analyze(body: AnalyzeRequest):
             source=r.source,
             highlight_start=r.highlight_start,
             highlight_end=r.highlight_end,
+            pattern_geometry=r.pattern_geometry,
         )
         for rank, r in enumerate(results, start=1)
     ]

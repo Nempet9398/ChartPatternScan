@@ -22,6 +22,10 @@ import pandas as pd
 from .base import BasePattern, PatternResult
 from .config import SHOULDER_TOLERANCE, NECKLINE_TOLERANCE
 from .preprocessor import preprocess
+from .geometry import (
+    build_geometry, make_point, make_line, make_level,
+    pos_to_date, pos_to_price,
+)
 
 
 class HeadAndShoulders(BasePattern):
@@ -54,9 +58,31 @@ class HeadAndShoulders(BasePattern):
 
         similarity = round(c1_score + c2_score + c3_score, 1)
 
-        p1_pos, _, _, _, p5_pos = positions
+        p1_pos, t2_pos, p3_pos, t4_pos, p5_pos = positions
+        close    = prep["close"]
+        smoothed = prep["smoothed"]
         highlight_start = pd.Timestamp(dates[p1_pos]).strftime("%Y-%m-%d")
         highlight_end   = pd.Timestamp(dates[p5_pos]).strftime("%Y-%m-%d")
+
+        # ── geometry ─────────────────────────────────────────────────────────
+        neckline_y1 = pos_to_price(t2_pos, dates, close)
+        neckline_y2 = pos_to_price(t4_pos, dates, close)
+        geometry = build_geometry(
+            points=[
+                make_point("left_shoulder",  pos_to_date(p1_pos, dates), pos_to_price(p1_pos, dates, close)),
+                make_point("left_trough",    pos_to_date(t2_pos, dates), neckline_y1),
+                make_point("head",           pos_to_date(p3_pos, dates), pos_to_price(p3_pos, dates, close)),
+                make_point("right_trough",   pos_to_date(t4_pos, dates), neckline_y2),
+                make_point("right_shoulder", pos_to_date(p5_pos, dates), pos_to_price(p5_pos, dates, close)),
+            ],
+            lines=[
+                make_line(
+                    pos_to_date(t2_pos, dates), neckline_y1,
+                    pos_to_date(t4_pos, dates), neckline_y2,
+                    "neckline", "#888888", "dashed",
+                ),
+            ],
+        )
 
         return PatternResult(
             name=self.name, name_ko=self.name_ko, similarity=similarity,
@@ -64,6 +90,7 @@ class HeadAndShoulders(BasePattern):
             historical_success_rate=self.historical_success_rate,
             source=self.source,
             highlight_start=highlight_start, highlight_end=highlight_end,
+            pattern_geometry=geometry if similarity > 0 else None,
         )
 
     def _find_best(self, peaks, troughs, norm):
