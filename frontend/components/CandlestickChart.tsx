@@ -313,7 +313,11 @@ export default function CandlestickChart({
 
   return (
     <div
-      className="relative w-full rounded-xl overflow-hidden border border-gray-200 bg-white"
+      className={`relative w-full rounded-xl overflow-hidden bg-white transition-all duration-200 ${
+        isSelectMode
+          ? "border-2 border-blue-400 ring-2 ring-blue-100"
+          : "border border-gray-200"
+      }`}
       style={{ height }}
     >
       {/* 차트 캔버스 */}
@@ -359,14 +363,19 @@ export default function CandlestickChart({
             }`}
           onClick={() => setIsSelectMode((m) => !m)}
         >
-          {isSelectMode ? "↩ 탐색 모드" : "◻ 구간 선택"}
+          {isSelectMode ? (
+            <>
+              <span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse mr-1" />
+              ↩ 탐색 모드
+            </>
+          ) : "◻ 구간 선택"}
         </button>
       )}
 
       {/* 구간 선택 안내 문구 */}
       {isSelectMode && !dragBox && (
         <div
-          className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-xs text-slate-500 bg-white/90 pointer-events-none select-none"
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-xs text-slate-500 bg-white/90 pointer-events-none select-none animate-pulse"
           style={{ zIndex: 20 }}
         >
           드래그로 분석할 구간을 선택하세요

@@ -1,9 +1,13 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import type { PatternItem } from "@/lib/api";
 
 interface Props {
   pattern: PatternItem;
   isSelected?: boolean;
   onClick?: () => void;
+  animationDelay?: number;
 }
 
 // CLAUDE.md 기준: 70+ 초록, 40+ 노랑, 미만 회색
@@ -21,14 +25,23 @@ const SIGNAL_BADGE: Record<string, { label: string; className: string }> = {
 
 const RANK_COLORS = ["text-yellow-500", "text-gray-400", "text-amber-700"];
 
-export default function PatternCard({ pattern, isSelected = false, onClick }: Props) {
+export default function PatternCard({ pattern, isSelected = false, onClick, animationDelay = 0 }: Props) {
   const badge = SIGNAL_BADGE[pattern.signal] ?? SIGNAL_BADGE["neutral"];
   const barColor = getBarColor(pattern.similarity);
   const rankColor = RANK_COLORS[(pattern.rank - 1)] ?? "text-gray-400";
 
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), animationDelay);
+    return () => clearTimeout(timer);
+  }, [animationDelay]);
+
   return (
     <div
-      className={`rounded-2xl border bg-white p-5 shadow-sm transition-all cursor-pointer
+      className={`rounded-2xl border bg-white p-5 shadow-sm cursor-pointer
+        transition-all duration-500
+        ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}
         ${isSelected
           ? "border-blue-400 ring-2 ring-blue-200 shadow-md"
           : "border-gray-200 hover:shadow-md hover:border-blue-200"

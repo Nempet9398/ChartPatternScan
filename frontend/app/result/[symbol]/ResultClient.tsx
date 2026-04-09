@@ -10,8 +10,15 @@ import PeriodSelector from "@/components/PeriodSelector";
 import CandlestickChart from "@/components/CandlestickChart";
 import type { RangeSelectEvent, PatternGeometry } from "@/components/CandlestickChart";
 import PatternCard from "@/components/PatternCard";
+import { useToast } from "@/components/Toast";
 
 const MIN_CANDLES = 60;
+
+// 단계별 로딩 메시지
+const LOAD_STEPS = [
+  "데이터 수집 중...",
+  "18개 패턴 분석 중...",
+];
 
 interface Props {
   params: Promise<{ symbol: string }>;
@@ -22,15 +29,20 @@ export default function ResultClient({ params }: Props) {
   const decodedSymbol = decodeURIComponent(routeSymbol);
 
   const { timeframe, selectionRange, setSymbol, setSelectionRange } = useChartStore();
+  const { showToast } = useToast();
 
-  const [ohlcv,             setOhlcv]            = useState<OHLCVBar[]>([]);
-  const [patterns,          setPatterns]          = useState<PatternItem[]>([]);
+  const [ohlcv,              setOhlcv]             = useState<OHLCVBar[]>([]);
+  const [patterns,           setPatterns]           = useState<PatternItem[]>([]);
   const [selectedPatternIdx, setSelectedPatternIdx] = useState<number>(0);
-  const [loading,           setLoading]           = useState(false);
-  const [analyzeLoading,    setAnalyzeLoading]    = useState(false);
-  const [error,             setError]             = useState<string | null>(null);
-  const [rangeWarning,      setRangeWarning]      = useState<string | null>(null);
-  const [analyzedAt,        setAnalyzedAt]        = useState("");
+  const [loading,            setLoading]            = useState(false);
+  const [loadStep,           setLoadStep]           = useState(0);
+  const [analyzeLoading,     setAnalyzeLoading]     = useState(false);
+  const [error,              setError]              = useState<string | null>(null);
+  const [rangeWarning,       setRangeWarning]       = useState<string | null>(null);
+  const [analyzedAt,         setAnalyzedAt]         = useState("");
+
+  // 차트 페이드 전환용 — 새 데이터 로드 중에도 이전 차트 유지
+  const [chartVisible, setChartVisible] = useState(true);
 
   useEffect(() => {
     setSymbol(decodedSymbol);
@@ -40,25 +52,42 @@ export default function ResultClient({ params }: Props) {
   const loadChart = useCallback(
     async (sym: string, tf: Timeframe) => {
       setLoading(true);
+      setLoadStep(0);
       setError(null);
       setSelectionRange(null);
       setRangeWarning(null);
+
+      // 이전 차트 페이드 아웃
+      setChartVisible(false);
+
+      // 단계 1: 데이터 수집 중
+      const stepTimer = setTimeout(() => setLoadStep(1), 800);
+
       try {
         const [chartRes, analyzeRes] = await Promise.all([
           fetchChart(sym, tf),
-          analyzePattern(sym, tf),  // 구간 미선택 → 전체 데이터 분석
+          analyzePattern(sym, tf),
         ]);
+        clearTimeout(stepTimer);
         setOhlcv(chartRes.ohlcv);
         setPatterns(analyzeRes.top_patterns);
         setAnalyzedAt(analyzeRes.analyzed_at);
-        setSelectedPatternIdx(0); // 새 분석 시 Top1 선택
+        setSelectedPatternIdx(0);
+
+        // 페이드 인
+        setTimeout(() => setChartVisible(true), 50);
+        showToast("분석 완료!", "success");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
+        clearTimeout(stepTimer);
+        const msg = err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
+        setError(msg);
+        setChartVisible(true);
+        showToast(msg, "error");
       } finally {
         setLoading(false);
       }
     },
-    [setSelectionRange],
+    [setSelectionRange, showToast],
   );
 
   useEffect(() => {
@@ -94,13 +123,6 @@ export default function ResultClient({ params }: Props) {
     if (!selectionRange) return;
     setAnalyzeLoading(true);
     setError(null);
-    console.log("[분석하기] 전송 값:", {
-      symbol: decodedSymbol,
-      timeframe,
-      startTime: selectionRange.startTime,
-      endTime: selectionRange.endTime,
-      candleCount: selectionRange.candleCount,
-    });
     try {
       const res = await analyzePattern(
         decodedSymbol,
@@ -111,12 +133,15 @@ export default function ResultClient({ params }: Props) {
       setPatterns(res.top_patterns);
       setAnalyzedAt(res.analyzed_at);
       setSelectedPatternIdx(0);
+      showToast("구간 분석 완료!", "success");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "분석 오류가 발생했습니다.");
+      const msg = err instanceof Error ? err.message : "분석 오류가 발생했습니다.";
+      setError(msg);
+      showToast(msg, "error");
     } finally {
       setAnalyzeLoading(false);
     }
-  }, [decodedSymbol, timeframe, selectionRange]);
+  }, [decodedSymbol, timeframe, selectionRange, showToast]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -146,10 +171,16 @@ export default function ResultClient({ params }: Props) {
           <PeriodSelector onChange={handleTimeframeChange} />
         </div>
 
-        {/* 에러 메시지 */}
+        {/* 에러 메시지 + 재시도 버튼 */}
         {error && (
-          <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 p-4 mb-4 text-sm">
-            <strong>오류:</strong> {error}
+          <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 p-4 mb-4 text-sm flex items-start justify-between gap-3">
+            <span><strong>오류:</strong> {error}</span>
+            <button
+              onClick={() => loadChart(decodedSymbol, timeframe)}
+              className="shrink-0 px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-medium transition"
+            >
+              재시도
+            </button>
           </div>
         )}
 
@@ -183,23 +214,26 @@ export default function ResultClient({ params }: Props) {
           </div>
         )}
 
-        {/* 로딩 스피너 */}
+        {/* 단계별 로딩 스피너 */}
         {loading && (
           <div className="flex items-center justify-center py-20 text-slate-400 text-sm gap-2">
-            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+            <svg className="animate-spin h-5 w-5 text-blue-400" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10"
                       stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor"
                     d="M4 12a8 8 0 018-8v8H4z" />
             </svg>
-            데이터 로딩 중...
+            <span className="transition-all duration-300">{LOAD_STEPS[loadStep]}</span>
           </div>
         )}
 
         {!loading && !error && (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* 차트 (2/3) */}
-            <div className="lg:col-span-2">
+            {/* 차트 (2/3) — 페이드 전환 */}
+            <div
+              className="lg:col-span-2 transition-opacity duration-300"
+              style={{ opacity: chartVisible ? 1 : 0 }}
+            >
               {ohlcv.length > 0 ? (
                 <CandlestickChart
                   ohlcv={ohlcv}
@@ -233,7 +267,6 @@ export default function ResultClient({ params }: Props) {
                 </div>
               ) : patterns.length > 0 ? (
                 <>
-                  {/* 클릭 힌트 */}
                   <p className="text-xs text-slate-400 text-center select-none">
                     카드를 클릭하면 차트에 패턴 특성선이 그려집니다
                   </p>
@@ -243,6 +276,7 @@ export default function ResultClient({ params }: Props) {
                       pattern={p}
                       isSelected={selectedPatternIdx === idx}
                       onClick={() => setSelectedPatternIdx(idx)}
+                      animationDelay={idx * 100}
                     />
                   ))}
                 </>
